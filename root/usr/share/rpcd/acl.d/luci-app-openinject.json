@@ -3,13 +3,15 @@
 		"description": "Grant access to OpenInject LuCI app",
 		"read": {
 			"ubus": {
-				"luci-openinject": [ "*" ]
+				"luci-openinject": [ "*" ],
+				"rc": [ "*" ]
 			},
 			"uci": [ "openinject" ]
 		},
 		"write": {
 			"ubus": {
-				"luci-openinject": [ "*" ]
+				"luci-openinject": [ "*" ],
+				"rc": [ "*" ]
 			},
 			"uci": [ "openinject" ]
 		}

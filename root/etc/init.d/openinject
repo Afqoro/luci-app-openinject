@@ -1,6 +1,4 @@
 #!/bin/sh /etc/rc.common
-# luci-app-openinject init: openinject (SOCKS5 injector) + mihomo TUN
-# Urutan start: route anti-loop -> openinject -> mihomo -> DNS hijack
 
 START=99
 STOP=10
@@ -11,27 +9,45 @@ MIHOMO_BIN=/usr/bin/mihomo
 OI_CONF=/etc/openinject.json
 MIHOMO_CONF=/etc/mihomo-openinject.yaml
 
-# Resolve domain -> IP literal via WAN (tanpa fake-IP), tulis config + route
+service_triggers() {
+	procd_add_reload_trigger "openinject"
+}
+
+reload_service() {
+	restart
+}
+
 resolve_and_route() {
-	# Baca ssh_host dari config JSON yang sudah di-generate sync_config
-	local ssh_host=$(sed -n 's/.*"ssh_host": *"\([^"]*\)".*/\1/p' "$OI_CONF" | head -1)
-	[ -z "$ssh_host" ] && { logger -t openinject "ssh_host kosong di $OI_CONF, abort"; return 1; }
-	# Sudah IP literal? langsung route saja
-	if echo "$ssh_host" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
-		local ip="$ssh_host"
-	else
-		local wan_if=$(uci -q get network.wan.device || echo eth1)
-		local wan_gw=$(ip route show default | awk '/via/ {print $3; exit}')
-		local ip=$(nslookup "$ssh_host" $(uci -q get dhcp.@dnsmasq[0].server | sed 's/#.*//') 2>/dev/null | awk '/^Address/ {print $NF; exit}')
-		[ -z "$ip" ] && ip=$(nslookup "$ssh_host" 1.1.1.1 2>/dev/null | awk '/^Address/ {print $NF; exit}')
-		[ -z "$ip" ] && { logger -t openinject "resolve $ssh_host GAGAL, abort"; return 1; }
-		# Patch config openinject: ssh_host -> IP literal
-		sed -i "s|\"ssh_host\": *\"[^\"]*\"|\"ssh_host\": \"$ip\"|" "$OI_CONF"
-	fi
+	# 1. Prioritaskan front host (bug host) karena ini IP fisik tujuan koneksi TCP pertama openinject!
+	local front_host=$(sed -n 's/.*"front": *"\(.*\)".*/\1/p' "$OI_CONF" | head -1)
+	front_host=${front_host%%:*}
+	[ -z "$front_host" ] && front_host=$(sed -n 's/.*"bug_host": *"\(.*\)".*/\1/p' "$OI_CONF" | head -1)
+
+	local target_host="$front_host"
+	[ -z "$target_host" ] && target_host=$(sed -n 's/.*"ssh_host": *"\(.*\)".*/\1/p' "$OI_CONF" | head -1)
+
+	[ -z "$target_host" ] && { logger -t openinject "target host kosong di $OI_CONF, abort"; return 1; }
+
 	local wan_if=$(uci -q get network.wan.device || echo eth1)
 	local wan_gw=$(ip route show default | awk '/via/ {print $3; exit}')
-	ip route replace "$ip/32" via "$wan_gw" dev "$wan_if"
-	logger -t openinject "anti-loop route: $ip/32 via $wan_gw dev $wan_if"
+	[ -z "$wan_gw" ] && wan_gw=192.168.2.1
+
+	local target_ip=""
+	if echo "$target_host" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+		target_ip="$target_host"
+	else
+		# Jika nama domain, coba resolve
+		target_ip=$(nslookup "$target_host" 192.168.2.1 2>/dev/null | awk '/^Address/ {print $NF; exit}')
+		[ -z "$target_ip" ] && target_ip=$(nslookup "$target_host" 8.8.8.8 2>/dev/null | awk '/^Address/ {print $NF; exit}')
+		[ -z "$target_ip" ] && target_ip=$(nslookup "$target_host" 1.1.1.1 2>/dev/null | awk '/^Address/ {print $NF; exit}')
+	fi
+
+	if [ -n "$target_ip" ]; then
+		ip route replace "$target_ip/32" via "$wan_gw" dev "$wan_if"
+		logger -t openinject "anti-loop route: $target_ip/32 via $wan_gw dev $wan_if"
+	else
+		logger -t openinject "Warning: resolve $target_host gagal, lanjut tanpa route static khusus"
+	fi
 	return 0
 }
 
@@ -58,7 +74,6 @@ dns_hijack_off() {
 sync_config() {
 	local proxy=$(uci -q get openinject.config.proxy)
 	local ssh_field=$(uci -q get openinject.config.ssh_field)
-	local payload=$(uci -q get openinject.config.payload)
 	[ -z "$proxy" ] && { logger -t openinject "proxy kosong, abort sync"; return 1; }
 	[ -z "$ssh_field" ] && { logger -t openinject "ssh_field kosong, abort sync"; return 1; }
 
@@ -80,18 +95,30 @@ sync_config() {
 	esac
 	[ -z "$ssh_user" ] || [ "$ssh_user" = "$cred" ] && { logger -t openinject "ssh_field format salah (butuh host:port@user:pass), abort"; return 1; }
 
-	cat > "$OI_CONF" <<EOF
-{
-  "listen": "0.0.0.0:1081",
-  "front": "$front_host:$front_port",
-  "ssh_host": "$ssh_host",
-  "ssh_port": $ssh_port,
-  "ssh_user": "$ssh_user",
-  "ssh_password": "$ssh_pass",
-  "bug_host": "$front_host",
-  "payload": "$payload"
+	python3 -c "import json, subprocess, re
+
+# Ambil raw payload langsung dari UCI via subprocess
+try:
+    raw_payload = subprocess.check_output(['uci', '-q', 'get', 'openinject.config.payload'], text=True)
+except Exception:
+    raw_payload = ''
+
+clean_payload = re.sub(r'[\r\n]+', '', raw_payload).strip()
+
+data = {
+  'listen': '0.0.0.0:1081',
+  'front': '$front_host:$front_port',
+  'ssh_host': '$ssh_host',
+  'ssh_port': int('$ssh_port'),
+  'ssh_user': '$ssh_user',
+  'ssh_password': '''$ssh_pass''',
+  'bug_host': '$front_host',
+  'payload': clean_payload
 }
-EOF
+
+with open('$OI_CONF', 'w') as f:
+    json.dump(data, f, indent=2)
+"
 	logger -t openinject "config synced: front=$front_host:$front_port ssh=$ssh_host:$ssh_port user=$ssh_user"
 	return 0
 }
@@ -109,9 +136,9 @@ start_service() {
 	procd_set_param stderr 1
 	procd_close_instance
 
-	# 2) mihomo TUN (mtu 1500 wajib)
+	# 2) mihomo core (TUN interface 'Meta')
 	procd_open_instance mihomo
-	procd_set_param command "$MIHOMO_BIN" -d /tmp -f "$MIHOMO_CONF"
+	procd_set_param command "$MIHOMO_BIN" -f "$MIHOMO_CONF"
 	procd_set_param respawn 3600 5 0
 	procd_set_param stdout 1
 	procd_set_param stderr 1
