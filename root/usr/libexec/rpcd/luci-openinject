@@ -1,18 +1,46 @@
 #!/bin/sh
-# rpcd backend: /cgi-bin/luci/admin/services/openinject
+# rpcd backend: luci-openinject (pola jshn, sesuai plugin rpcd OpenWrt)
 
-. /usr/libexec/rpcd/luci-openinject 2>/dev/null
+. /usr/share/libubox/jshn.sh
+
+# rpcd mengirim request JSON via stdin — wajib dikonsumsi
+cat >/dev/null 2>&1
 
 case "$1" in
 	list)
-		echo '{"getStatus": {}, "applyConfig": {}}'
+		json_init
+		json_add_object "getStatus"
+		json_close_object
+		json_add_object "applyConfig"
+		json_close_object
+		json_dump
 	;;
-	getStatus)
-		oi=0; mi=0; tun=0
-		pgrep -f '/usr/bin/openinject' >/dev/null && oi=1
-		pgrep -f '/usr/bin/mihomo' >/dev/null && mi=1
-		ip link show Meta >/dev/null 2>&1 && tun=1
-		echo "{\"openinject\": $oi, \"mihomo\": $mi, \"tun\": $tun}"
+	call)
+		case "$2" in
+		getStatus)
+			oi=0; mi=0; tun=0
+			pgrep -f '/usr/bin/openinject' >/dev/null 2>&1 && oi=1
+			pgrep -f '/usr/bin/mihomo' >/dev/null 2>&1 && mi=1
+			ip link show Meta >/dev/null 2>&1 && tun=1
+			json_init
+			json_add_int "openinject" "$oi"
+			json_add_int "mihomo" "$mi"
+			json_add_int "tun" "$tun"
+			json_dump
+		;;
+		applyConfig)
+			/etc/init.d/openinject restart >/dev/null 2>&1
+			json_init
+			json_add_boolean "success" 1
+			json_dump
+		;;
+		esac
+	;;
+	*)
+		json_init
+		json_add_boolean "success" 0
+		json_add_string "error" "unknown method"
+		json_dump
 	;;
 esac
 exit 0
