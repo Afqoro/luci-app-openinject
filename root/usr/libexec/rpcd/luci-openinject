@@ -34,6 +34,12 @@ case "$1" in
 			json_add_boolean "success" 1
 			json_dump
 		;;
+		*)
+			json_init
+			json_add_boolean "success" 0
+			json_add_string "error" "unknown method"
+			json_dump
+		;;
 		esac
 	;;
 	*)
