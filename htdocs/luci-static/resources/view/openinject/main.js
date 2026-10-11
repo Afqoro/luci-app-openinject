@@ -17,13 +17,21 @@ var callRCInit = rpc.declare({
 	params: [ 'name', 'action' ]
 });
 
-function updateStatusBadge(status) {
-	var el = document.getElementById('oi_status_box');
+function renderBadge(label, val) {
+	var isUp = !!val;
+	var color = isUp ? '#28a745' : '#dc3545';
+	var text = isUp ? (label === 'TUN Meta' ? 'UP' : 'RUNNING') : (label === 'TUN Meta' ? 'DOWN' : 'STOPPED');
+	return '<span>' + label + ': <b style="color:' + color + '">' + text + '</b></span>';
+}
+
+function updateStatusDom(status) {
+	var el = document.getElementById('oi_status_badge_container');
 	if (!el) return;
-	var oi = status.openinject ? '<b style="color:green">RUNNING</b>' : '<b style="color:red">STOPPED</b>';
-	var mi = status.mihomo ? '<b style="color:green">RUNNING</b>' : '<b style="color:red">STOPPED</b>';
-	var tun = status.tun ? '<b style="color:green">UP</b>' : '<b style="color:red">DOWN</b>';
-	el.innerHTML = 'openinject: ' + oi + ' | mihomo: ' + mi + ' | TUN Meta: ' + tun;
+	el.innerHTML = [
+		renderBadge('openinject', status.openinject),
+		renderBadge('mihomo', status.mihomo),
+		renderBadge('TUN Meta', status.tun)
+	].join(' &nbsp;|&nbsp; ');
 }
 
 return view.extend({
@@ -40,28 +48,29 @@ return view.extend({
 
 		m = new form.Map('openinject', _('OpenInject'), _('Injector payload HTTP Custom (SSH) + core TUN. Semua client WiFi otomatis terowong.'));
 
-		// Status Section
-		s = m.section(form.NamedSection, 'status', 'status', _('Status'));
+		// Status Section (Tampil independen di atas form)
+		s = m.section(form.NamedSection, 'status', 'status', _('Status Layanan'));
 		s.anonymous = true;
 
-		o = s.option(form.DummyValue, '_status', _('Status Layanan'));
+		o = s.option(form.DummyValue, '_status_dummy', _('Status'));
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			var oi = status.openinject ? '<b style="color:green">RUNNING</b>' : '<b style="color:red">STOPPED</b>';
-			var mi = status.mihomo ? '<b style="color:green">RUNNING</b>' : '<b style="color:red">STOPPED</b>';
-			var tun = status.tun ? '<b style="color:green">UP</b>' : '<b style="color:red">DOWN</b>';
-			return '<span id="oi_status_box">openinject: ' + oi + ' | mihomo: ' + mi + ' | TUN Meta: ' + tun + '</span>';
+			var initialHtml = [
+				renderBadge('openinject', status.openinject),
+				renderBadge('mihomo', status.mihomo),
+				renderBadge('TUN Meta', status.tun)
+			].join(' &nbsp;|&nbsp; ');
+			return '<div id="oi_status_badge_container" style="font-size:14px; padding:4px 0;">' + initialHtml + '</div>';
 		};
 
 		poll.add(function() {
 			return L.resolveDefault(callGetStatus(), {}).then(function(res) {
-				updateStatusBadge(res);
+				updateStatusDom(res);
 			});
 		}, 3);
 
-		// Tombol Aksi Manual
-		o = s.option(form.Button, '_restart', _('Restart / Terapkan Manual'));
-		o.inputtitle = _('Restart Service');
+		o = s.option(form.Button, '_restart', _('Kontrol Layanan'));
+		o.inputtitle = _('Restart / Terapkan Sekarang');
 		o.inputstyle = 'apply';
 		o.onclick = function() {
 			return callRCInit('openinject', 'restart').then(function() {
@@ -69,8 +78,8 @@ return view.extend({
 			});
 		};
 
-		// Config Section
-		s = m.section(form.NamedSection, 'config', 'openinject', _('Pengaturan'));
+		// Config Section (Bagian Pengaturan)
+		s = m.section(form.NamedSection, 'config', 'main', _('Pengaturan'));
 		s.addremove = false;
 
 		o = s.option(form.Flag, 'enabled', _('Aktifkan tunnel'));
