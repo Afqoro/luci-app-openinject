@@ -1,0 +1,22 @@
+{
+	"admin/services/openinject": {
+		"title": "OpenInject",
+		"order": 50,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": ["luci-app-openinject"],
+			"uci": { "openinject": true }
+		}
+	},
+
+	"admin/services/openinject/settings": {
+		"title": "Settings",
+		"order": 1,
+		"action": {
+			"type": "view",
+			"path": "openinject/main"
+		}
+	}
+}

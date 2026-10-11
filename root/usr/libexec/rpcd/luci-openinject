@@ -1,0 +1,18 @@
+#!/bin/sh
+# rpcd backend: /cgi-bin/luci/admin/services/openinject
+
+. /usr/libexec/rpcd/luci-openinject 2>/dev/null
+
+case "$1" in
+	list)
+		echo '{"getStatus": {}, "applyConfig": {}}'
+	;;
+	getStatus)
+		oi=0; mi=0; tun=0
+		pgrep -f '/usr/bin/openinject' >/dev/null && oi=1
+		pgrep -f '/usr/bin/mihomo' >/dev/null && mi=1
+		ip link show Meta >/dev/null 2>&1 && tun=1
+		echo "{\"openinject\": $oi, \"mihomo\": $mi, \"tun\": $tun}"
+	;;
+esac
+exit 0

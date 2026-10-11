@@ -1,0 +1,95 @@
+#!/bin/sh /etc/rc.common
+# luci-app-openinject init: openinject (SOCKS5 injector) + mihomo TUN
+# Urutan start: route anti-loop -> openinject -> mihomo -> DNS hijack
+
+START=99
+STOP=10
+USE_PROCD=1
+
+OI_BIN=/usr/bin/openinject
+MIHOMO_BIN=/usr/bin/mihomo
+OI_CONF=/etc/openinject.json
+MIHOMO_CONF=/etc/mihomo-openinject.yaml
+
+# Resolve domain -> IP literal via WAN (tanpa fake-IP), tulis config + route
+resolve_and_route() {
+	local ssh_host=$(uci -q get openinject.config.ssh_host)
+	# Sudah IP literal? langsung route saja
+	if echo "$ssh_host" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+		local ip="$ssh_host"
+	else
+		local wan_if=$(uci -q get network.wan.device || echo eth1)
+		local wan_gw=$(ip route show default | awk '/via/ {print $3; exit}')
+		local ip=$(nslookup "$ssh_host" $(uci -q get dhcp.@dnsmasq[0].server | sed 's/#.*//') 2>/dev/null | awk '/^Address/ {print $NF; exit}')
+		[ -z "$ip" ] && ip=$(nslookup "$ssh_host" 1.1.1.1 2>/dev/null | awk '/^Address/ {print $NF; exit}')
+		[ -z "$ip" ] && { logger -t openinject "resolve $ssh_host GAGAL, abort"; return 1; }
+		# Patch config openinject: ssh_host -> IP literal
+		sed -i "s|\"ssh_host\": *\"[^\"]*\"|\"ssh_host\": \"$ip\"|" "$OI_CONF"
+	fi
+	local wan_if=$(uci -q get network.wan.device || echo eth1)
+	local wan_gw=$(ip route show default | awk '/via/ {print $3; exit}')
+	ip route replace "$ip/32" via "$wan_gw" dev "$wan_if"
+	logger -t openinject "anti-loop route: $ip/32 via $wan_gw dev $wan_if"
+	return 0
+}
+
+dns_hijack_on() {
+	[ "$(uci -q get openinject.config.dns_hijack)" = "1" ] || return 0
+	uci -q del_list dhcp.@dnsmasq[0].server="127.0.0.1#5353"
+	uci -q add_list dhcp.@dnsmasq[0].server="127.0.0.1#5353"
+	uci -q set dhcp.@dnsmasq[0].noresolv="1"
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart
+	logger -t openinject "DNS hijack ON (dnsmasq -> 127.0.0.1#5353)"
+}
+
+dns_hijack_off() {
+	uci -q del_list dhcp.@dnsmasq[0].server="127.0.0.1#5353"
+	uci -q delete dhcp.@dnsmasq[0].noresolv 2>/dev/null
+	uci commit dhcp
+	/etc/init.d/dnsmasq restart 2>/dev/null
+	logger -t openinject "DNS hijack OFF"
+}
+
+start_service() {
+	[ "$(uci -q get openinject.config.enabled)" = "1" ] || { logger -t openinject "disabled via UCI"; return 0; }
+	resolve_and_route || return 1
+
+	# 1) openinject dulu (backend SOCKS5 harus siap sebelum mihomo)
+	procd_open_instance openinject
+	procd_set_param command "$OI_BIN" -config "$OI_CONF"
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+
+	# 2) mihomo TUN (mtu 1500 wajib)
+	procd_open_instance mihomo
+	procd_set_param command "$MIHOMO_BIN" -d /tmp -f "$MIHOMO_CONF"
+	procd_set_param respawn 3600 5 0
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param env MIHOMO_LOG_FILE=/tmp/mihomo-openinject.log
+	procd_close_instance
+
+	dns_hijack_on
+	logger -t openinject "STARTED: openinject -> mihomo TUN"
+}
+
+stop_service() {
+	dns_hijack_off
+	# procd mematikan kedua instance otomatis; TUN Meta ikut hilang
+	ip link del Meta 2>/dev/null
+	logger -t openinject "STOPPED"
+}
+
+restart_service() {
+	stop_service
+	start_service
+}
+
+status_service() {
+	pgrep -f "$OI_BIN" >/dev/null && echo "openinject: RUNNING" || echo "openinject: STOPPED"
+	pgrep -f "$MIHOMO_BIN" >/dev/null && echo "mihomo: RUNNING" || echo "mihomo: STOPPED"
+	ip link show Meta >/dev/null 2>&1 && echo "TUN Meta: UP" || echo "TUN Meta: DOWN"
+}

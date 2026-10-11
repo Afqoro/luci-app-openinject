@@ -1,0 +1,11 @@
+{
+	"luci-app-openinject": {
+		"description": "Grant access to OpenInject LuCI app",
+		"read": {
+			"uci": ["openinject"]
+		},
+		"write": {
+			"uci": ["openinject"]
+		}
+	}
+}
