@@ -42,7 +42,7 @@ return view.extend({
 		o = s.option(form.Flag, 'enabled', _('Aktifkan tunnel'));
 		o.rmempty = false;
 
-		o = s.option(form.Value, 'proxy', _('Proxy (host:port)'));
+		o = s.option(form.Value, 'proxy', _('Proxy / bug (host:port)'));
 		o.rmempty = false;
 		o.placeholder = 'tdwcontent.telkomsel.com:443';
 		o.datatype = 'hostport';
@@ -50,14 +50,18 @@ return view.extend({
 		o = s.option(form.DummyValue, '_proxy_note');
 		o.rawhtml = true;
 		o.cfgvalue = function() {
-			return _('<small>Alamat server yang dihubungi payload (ala kolom proxy HTTP Custom). Akun SSH di belakangnya diisi di bawah.</small>');
+			return _('<small>Kolom "proxy" ala HTTP Custom: server depan yang dihubungi payload (bug host operator).</small>');
 		};
 
-		o = s.option(form.Value, 'ssh_user', _('SSH user'));
+		o = s.option(form.Value, 'ssh_field', _('SSH (host:port@user:pass)'));
 		o.rmempty = false;
+		o.placeholder = 'd18abc8ldsqq14.cloudfront.net:80@Premium:Premium';
 
-		o = s.option(form.Value, 'ssh_password', _('SSH password'));
-		o.password = true;
+		o = s.option(form.DummyValue, '_ssh_note');
+		o.rawhtml = true;
+		o.cfgvalue = function() {
+			return _('<small>Server SSH tujuan sesungguhnya + kredensial, format sama dengan kolom SSH HTTP Custom.</small>');
+		};
 
 		o = s.option(form.TextValue, 'payload', _('Payload HTTP'));
 		o.rows = 5;

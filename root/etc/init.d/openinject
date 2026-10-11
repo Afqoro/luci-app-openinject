@@ -53,29 +53,46 @@ dns_hijack_off() {
 	logger -t openinject "DNS hijack OFF"
 }
 
-# Sinkron UCI -> /etc/openinject.json (pecah proxy host:port ala HTTP Custom)
+# Sinkron UCI -> /etc/openinject.json (format ala HTTP Custom)
+# proxy = bug host depan (front); ssh_field = host:port@user:pass
 sync_config() {
 	local proxy=$(uci -q get openinject.config.proxy)
-	local user=$(uci -q get openinject.config.ssh_user)
-	local pass=$(uci -q get openinject.config.ssh_password)
+	local ssh_field=$(uci -q get openinject.config.ssh_field)
 	local payload=$(uci -q get openinject.config.payload)
 	[ -z "$proxy" ] && { logger -t openinject "proxy kosong, abort sync"; return 1; }
-	local host=${proxy%%:*}
-	local port=${proxy##*:}
-	[ "$host" = "$port" ] && port=80
-	# bug_host = host proxy (fallback payload placeholder)
+	[ -z "$ssh_field" ] && { logger -t openinject "ssh_field kosong, abort sync"; return 1; }
+
+	# proxy: host[:port]
+	local front_host=${proxy%%:*}
+	local front_port=${proxy##*:}
+	[ "$front_host" = "$front_port" ] && front_port=80
+
+	# ssh_field: host:port@user:pass  (user/pass boleh mengandung ':')
+	local cred=${ssh_field##*@}
+	local hostport=${ssh_field%%@*}
+	local ssh_user=${cred%%:*}
+	local ssh_pass=${cred#*:}
+	local ssh_host=${hostport%%:*}
+	local ssh_port=${hostport##*:}
+	case "$hostport" in
+		*:*) ;;
+		*) ssh_port=22 ;;
+	esac
+	[ -z "$ssh_user" ] || [ "$ssh_user" = "$cred" ] && { logger -t openinject "ssh_field format salah (butuh host:port@user:pass), abort"; return 1; }
+
 	cat > "$OI_CONF" <<EOF
 {
   "listen": "0.0.0.0:1081",
-  "ssh_host": "$host",
-  "ssh_port": $port,
-  "ssh_user": "$user",
-  "ssh_password": "$pass",
-  "bug_host": "$host",
+  "front": "$front_host:$front_port",
+  "ssh_host": "$ssh_host",
+  "ssh_port": $ssh_port,
+  "ssh_user": "$ssh_user",
+  "ssh_password": "$ssh_pass",
+  "bug_host": "$front_host",
   "payload": "$payload"
 }
 EOF
-	logger -t openinject "config synced: ssh_host=$host port=$port"
+	logger -t openinject "config synced: front=$front_host:$front_port ssh=$ssh_host:$ssh_port user=$ssh_user"
 	return 0
 }
 
