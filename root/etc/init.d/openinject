@@ -13,7 +13,9 @@ MIHOMO_CONF=/etc/mihomo-openinject.yaml
 
 # Resolve domain -> IP literal via WAN (tanpa fake-IP), tulis config + route
 resolve_and_route() {
-	local ssh_host=$(uci -q get openinject.config.ssh_host)
+	# Baca ssh_host dari config JSON yang sudah di-generate sync_config
+	local ssh_host=$(sed -n 's/.*"ssh_host": *"\([^"]*\)".*/\1/p' "$OI_CONF" | head -1)
+	[ -z "$ssh_host" ] && { logger -t openinject "ssh_host kosong di $OI_CONF, abort"; return 1; }
 	# Sudah IP literal? langsung route saja
 	if echo "$ssh_host" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
 		local ip="$ssh_host"
@@ -51,8 +53,35 @@ dns_hijack_off() {
 	logger -t openinject "DNS hijack OFF"
 }
 
+# Sinkron UCI -> /etc/openinject.json (pecah proxy host:port ala HTTP Custom)
+sync_config() {
+	local proxy=$(uci -q get openinject.config.proxy)
+	local user=$(uci -q get openinject.config.ssh_user)
+	local pass=$(uci -q get openinject.config.ssh_password)
+	local payload=$(uci -q get openinject.config.payload)
+	[ -z "$proxy" ] && { logger -t openinject "proxy kosong, abort sync"; return 1; }
+	local host=${proxy%%:*}
+	local port=${proxy##*:}
+	[ "$host" = "$port" ] && port=80
+	# bug_host = host proxy (fallback payload placeholder)
+	cat > "$OI_CONF" <<EOF
+{
+  "listen": "0.0.0.0:1081",
+  "ssh_host": "$host",
+  "ssh_port": $port,
+  "ssh_user": "$user",
+  "ssh_password": "$pass",
+  "bug_host": "$host",
+  "payload": "$payload"
+}
+EOF
+	logger -t openinject "config synced: ssh_host=$host port=$port"
+	return 0
+}
+
 start_service() {
 	[ "$(uci -q get openinject.config.enabled)" = "1" ] || { logger -t openinject "disabled via UCI"; return 0; }
+	sync_config || return 1
 	resolve_and_route || return 1
 
 	# 1) openinject dulu (backend SOCKS5 harus siap sebelum mihomo)

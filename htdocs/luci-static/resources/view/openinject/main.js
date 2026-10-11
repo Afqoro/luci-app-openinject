@@ -42,11 +42,16 @@ return view.extend({
 		o = s.option(form.Flag, 'enabled', _('Aktifkan tunnel'));
 		o.rmempty = false;
 
-		o = s.option(form.Value, 'ssh_host', _('SSH host / bug'));
+		o = s.option(form.Value, 'proxy', _('Proxy (host:port)'));
 		o.rmempty = false;
+		o.placeholder = 'tdwcontent.telkomsel.com:443';
+		o.datatype = 'hostport';
 
-		o = s.option(form.Value, 'ssh_port', _('SSH port'));
-		o.rmempty = false;
+		o = s.option(form.DummyValue, '_proxy_note');
+		o.rawhtml = true;
+		o.cfgvalue = function() {
+			return _('<small>Alamat server yang dihubungi payload (ala kolom proxy HTTP Custom). Akun SSH di belakangnya diisi di bawah.</small>');
+		};
 
 		o = s.option(form.Value, 'ssh_user', _('SSH user'));
 		o.rmempty = false;
