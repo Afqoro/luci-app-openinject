@@ -19,6 +19,21 @@ dns:
   listen: 0.0.0.0:5353
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
+  # Domain connectivity check jangan pakai fake-IP, biar Windows/Android deteksi internet normal
+  fake-ip-filter:
+    - '+.msftncsi.com'
+    - '+.msftconnecttest.com'
+    - '+.connectivitycheck.gstatic.com'
+    - '+.connectivitycheck.platform.hicloud.com'
+    - '+.connectivitycheck.platform.hihonorcloud.com'
+    - '+.captive.apple.com'
+    - '+.network-test.ubuntu.com'
+    - '+.detectportal.firefox.com'
+    - '+.nmcheck.gnome.org'
+    - '+.ping.archlinux.org'
+    - '+.cp.cloudflare.com'
+    - '+.bing.com'
+    - '+.www.bing.com'
 
 proxies:
   - name: oi-socks
@@ -34,7 +49,6 @@ proxy-groups:
       - oi-socks
 
 rules:
-  # Blokir QUIC/UDP 443 agar browser & app langsung instan fallback ke HTTPS/TCP tanpa timeout
-  - AND,((NETWORK,udp),(DST-PORT,443)),REJECT
-  - AND,((NETWORK,udp),(DST-PORT,8443)),REJECT
+  # Blokir seluruh UDP keluar (kecuali DNS port 53 yang ditangani dns internal)
+  - NETWORK,udp,REJECT
   - MATCH,OPENINJECT
