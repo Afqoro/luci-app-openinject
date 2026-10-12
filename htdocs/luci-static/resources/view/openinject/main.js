@@ -11,6 +11,12 @@ var callGetStatus = rpc.declare({
 	params: []
 });
 
+var callGetLogs = rpc.declare({
+	object: 'luci-openinject',
+	method: 'getLogs',
+	params: []
+});
+
 var callRCInit = rpc.declare({
 	object: 'rc',
 	method: 'init',
@@ -34,21 +40,44 @@ function updateStatusDom(status) {
 	].join(' &nbsp;|&nbsp; ');
 }
 
+function escapeHtml(text) {
+	var div = document.createElement('div');
+	div.textContent = text;
+	return div.innerHTML;
+}
+
+function updateLogDom(logs) {
+	var el = document.getElementById('oi_log_container');
+	if (!el) return;
+	var lines = (logs || '').split('\n');
+	var html = lines.map(function(line) {
+		var cls = 'oi-log-line';
+		if (/error|gagal|fail/i.test(line)) cls += ' oi-log-error';
+		else if (/SSH node|pool|grown|shrunk/i.test(line)) cls += ' oi-log-pool';
+		else if (/koneksi/.test(line)) cls += ' oi-log-conn';
+		return '<div class="' + cls + '">' + escapeHtml(line) + '</div>';
+	}).join('');
+	el.innerHTML = html;
+	el.scrollTop = el.scrollHeight;
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
 			L.resolveDefault(callGetStatus(), {}),
+			L.resolveDefault(callGetLogs(), {}),
 			uci.load('openinject')
 		]);
 	},
 
 	render: function(data) {
 		var status = data[0] || {};
+		var logs = (data[1] || {}).logs || '';
 		var m, s, o;
 
 		m = new form.Map('openinject', _('OpenInject'), _('Injector payload HTTP Custom (SSH) + core TUN. Semua client WiFi otomatis terowong.'));
 
-		// Status Section (Tampil independen di atas form)
+		// Status Section
 		s = m.section(form.NamedSection, 'status', 'status', _('Status Layanan'));
 		s.anonymous = true;
 
@@ -78,7 +107,7 @@ return view.extend({
 			});
 		};
 
-		// Config Section (Bagian Pengaturan)
+		// Config Section
 		s = m.section(form.NamedSection, 'config', 'main', _('Pengaturan'));
 		s.addremove = false;
 
@@ -112,6 +141,32 @@ return view.extend({
 
 		o = s.option(form.Flag, 'dns_hijack', _('Hijack DNS client (fake-IP via TUN)'));
 		o.default = '1';
+
+		// Log Section
+		s = m.section(form.NamedSection, 'logs', 'logs', _('Log Real-time'));
+		s.anonymous = true;
+
+		o = s.option(form.DummyValue, '_logs_dummy', _('Log Aktivitas'));
+		o.rawhtml = true;
+		o.cfgvalue = function() {
+			var style = '<style>' +
+				'#oi_log_container { max-height: 400px; overflow-y: auto; background: #1a1a1a; color: #e0e0e0; ' +
+				'font-family: monospace; font-size: 12px; padding: 8px; border-radius: 4px; border: 1px solid #333; }' +
+				'.oi-log-line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }' +
+				'.oi-log-error { color: #ff6b6b; }' +
+				'.oi-log-pool { color: #4ec9b0; }' +
+				'.oi-log-conn { color: #888; }' +
+				'</style>';
+			return style + '<div id="oi_log_container">' + escapeHtml(logs).split('\n').map(function(l) {
+				return '<div class="oi-log-line">' + l + '</div>';
+			}).join('') + '</div>';
+		};
+
+		poll.add(function() {
+			return L.resolveDefault(callGetLogs(), {}).then(function(res) {
+				updateLogDom(res.logs);
+			});
+		}, 2);
 
 		return m.render();
 	},

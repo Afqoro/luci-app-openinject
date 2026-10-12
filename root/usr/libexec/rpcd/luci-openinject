@@ -13,6 +13,8 @@ case "$1" in
 		json_close_object
 		json_add_object "applyConfig"
 		json_close_object
+		json_add_object "getLogs"
+		json_close_object
 		json_dump
 	;;
 	call)
@@ -32,6 +34,12 @@ case "$1" in
 			/etc/init.d/openinject restart >/dev/null 2>&1
 			json_init
 			json_add_boolean "success" 1
+			json_dump
+		;;
+		getLogs)
+			logs=$(logread | grep -iE 'openinject|mihomo' | tail -n 80 2>/dev/null)
+			json_init
+			json_add_string "logs" "$logs"
 			json_dump
 		;;
 		*)
