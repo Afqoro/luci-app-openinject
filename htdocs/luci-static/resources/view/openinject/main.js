@@ -46,18 +46,19 @@ function escapeHtml(text) {
 	return div.innerHTML;
 }
 
+function colorizeLine(line) {
+	var cls = 'oi-log-line';
+	if (/error|gagal|fail/i.test(line)) cls += ' oi-log-error';
+	else if (/SSH node|pool|grown|shrunk/i.test(line)) cls += ' oi-log-pool';
+	else if (/koneksi/.test(line)) cls += ' oi-log-conn';
+	return '<div class="' + cls + '">' + escapeHtml(line) + '</div>';
+}
+
 function updateLogDom(logs) {
 	var el = document.getElementById('oi_log_container');
 	if (!el) return;
 	var lines = (logs || '').split('\n');
-	var html = lines.map(function(line) {
-		var cls = 'oi-log-line';
-		if (/error|gagal|fail/i.test(line)) cls += ' oi-log-error';
-		else if (/SSH node|pool|grown|shrunk/i.test(line)) cls += ' oi-log-pool';
-		else if (/koneksi/.test(line)) cls += ' oi-log-conn';
-		return '<div class="' + cls + '">' + escapeHtml(line) + '</div>';
-	}).join('');
-	el.innerHTML = html;
+	el.innerHTML = lines.map(colorizeLine).join('');
 	el.scrollTop = el.scrollHeight;
 }
 
@@ -72,12 +73,12 @@ return view.extend({
 
 	render: function(data) {
 		var status = data[0] || {};
-		var logs = (data[1] || {}).logs || '';
+		var initialLogs = (data[1] || {}).logs || '';
 		var m, s, o;
 
 		m = new form.Map('openinject', _('OpenInject'), _('Injector payload HTTP Custom (SSH) + core TUN. Semua client WiFi otomatis terowong.'));
 
-		// Status Section
+		// Status Section (always visible above tabs)
 		s = m.section(form.NamedSection, 'status', 'status', _('Status Layanan'));
 		s.anonymous = true;
 
@@ -107,59 +108,60 @@ return view.extend({
 			});
 		};
 
-		// Config Section
-		s = m.section(form.NamedSection, 'config', 'main', _('Pengaturan'));
+		// Tabbed section: Settings + Log
+		s = m.section(form.NamedSection, 'config', 'main');
 		s.addremove = false;
+		s.tabs = true;
 
-		o = s.option(form.Flag, 'enabled', _('Aktifkan tunnel'));
+		s.tab('settings', _('Settings'));
+		s.tab('logs', _('Log Real-time'));
+
+		// --- Tab: Settings ---
+		o = s.taboption('settings', form.Flag, 'enabled', _('Aktifkan tunnel'));
 		o.rmempty = false;
 		o.default = '1';
 
-		o = s.option(form.Value, 'proxy', _('Proxy (host:port)'));
+		o = s.taboption('settings', form.Value, 'proxy', _('Proxy (host:port)'));
 		o.rmempty = false;
 		o.placeholder = '104.17.3.81:8080';
 
-		o = s.option(form.DummyValue, '_proxy_note');
+		o = s.taboption('settings', form.DummyValue, '_proxy_note');
 		o.rawhtml = true;
 		o.cfgvalue = function() {
 			return _('<small>Kolom "proxy" ala HTTP Custom: bug host operator (IP/Domain + Port).</small>');
 		};
 
-		o = s.option(form.Value, 'ssh_field', _('SSH (host:port@user:pass)'));
+		o = s.taboption('settings', form.Value, 'ssh_field', _('SSH (host:port@user:pass)'));
 		o.rmempty = false;
 		o.placeholder = 'id2.maha-stores.web.id:111@username:password';
 
-		o = s.option(form.DummyValue, '_ssh_note');
+		o = s.taboption('settings', form.DummyValue, '_ssh_note');
 		o.rawhtml = true;
 		o.cfgvalue = function() {
 			return _('<small>Server SSH tujuan + kredensial akun.</small>');
 		};
 
-		o = s.option(form.TextValue, 'payload', _('Payload HTTP'));
+		o = s.taboption('settings', form.TextValue, 'payload', _('Payload HTTP'));
 		o.rows = 5;
 		o.placeholder = 'GET / HTTP/1.1[crlf]Host: id2.maha-stores.web.id[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]';
 
-		o = s.option(form.Flag, 'dns_hijack', _('Hijack DNS client (fake-IP via TUN)'));
+		o = s.taboption('settings', form.Flag, 'dns_hijack', _('Hijack DNS client (fake-IP via TUN)'));
 		o.default = '1';
 
-		// Log Section
-		s = m.section(form.NamedSection, 'logs', 'logs', _('Log Real-time'));
-		s.anonymous = true;
-
-		o = s.option(form.DummyValue, '_logs_dummy', _('Log Aktivitas'));
+		// --- Tab: Log ---
+		o = s.taboption('logs', form.DummyValue, '_logs_dummy');
 		o.rawhtml = true;
 		o.cfgvalue = function() {
 			var style = '<style>' +
-				'#oi_log_container { max-height: 400px; overflow-y: auto; background: #1a1a1a; color: #e0e0e0; ' +
+				'#oi_log_container { max-height: 450px; overflow-y: auto; background: #1a1a1a; color: #e0e0e0; ' +
 				'font-family: monospace; font-size: 12px; padding: 8px; border-radius: 4px; border: 1px solid #333; }' +
 				'.oi-log-line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; }' +
 				'.oi-log-error { color: #ff6b6b; }' +
 				'.oi-log-pool { color: #4ec9b0; }' +
 				'.oi-log-conn { color: #888; }' +
 				'</style>';
-			return style + '<div id="oi_log_container">' + escapeHtml(logs).split('\n').map(function(l) {
-				return '<div class="oi-log-line">' + l + '</div>';
-			}).join('') + '</div>';
+			var html = initialLogs.split('\n').map(colorizeLine).join('');
+			return style + '<div id="oi_log_container">' + html + '</div>';
 		};
 
 		poll.add(function() {
