@@ -111,7 +111,6 @@ return view.extend({
 		// Tabbed section: Settings + Log
 		s = m.section(form.NamedSection, 'config', 'main');
 		s.addremove = false;
-		s.tabs = true;
 
 		s.tab('settings', _('Settings'));
 		s.tab('logs', _('Log Real-time'));
